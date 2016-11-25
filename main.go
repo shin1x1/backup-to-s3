@@ -32,6 +32,7 @@ func main() {
 
 	now := time.Now()
 
+	// Upload archive files
 	files, _ := filepath.Glob(filepath.Join(path, "*.gz"))
 	for _, file := range files {
 		wg.Add(1)
@@ -43,7 +44,17 @@ func main() {
 
 	wg.Wait()
 
-	remove(bucket, host, now)
+	// Remove expired archive files
+	deleteTime := now.Add(time.Duration(-30 * 24) * time.Hour)
+	deletePath := fmt.Sprintf("%s/%s/", host, deleteTime.Format(DATE_PATTERN))
+	svc := s3.New(s3Session())
+
+	objects := listObjects(svc, bucket, deletePath)
+	if len(objects.Contents) > 0 {
+		remove(svc, bucket, objects)
+	}
+
+	log.Println("REMOVE FILE:", deletePath)
 }
 
 func upload(bucket string, host string, now time.Time, path string) {
@@ -69,24 +80,42 @@ func upload(bucket string, host string, now time.Time, path string) {
 	}
 }
 
-func remove(bucket string, host string, now time.Time) {
-	deleteTime := now.Add(time.Duration(-30 * 24) * time.Hour)
-	deletePath := fmt.Sprintf("%s/%s/", host, deleteTime.Format(DATE_PATTERN))
-
-	svc := s3.New(s3Session())
-	_, err := svc.DeleteObject(&s3.DeleteObjectInput{
+func listObjects(svc *s3.S3, bucket string, deletePath string) *s3.ListObjectsOutput {
+	resp, err := svc.ListObjects(&s3.ListObjectsInput{
 		Bucket: aws.String(bucket),
-		Key: aws.String(deletePath),
+		Prefix: aws.String(deletePath),
 	})
 	if err != nil {
-		log.Fatal("failed to delete", err)
+		log.Fatal("failed to list objects", err)
 	}
 
-	log.Println("REMOVE FILE:", deletePath)
+	return resp
+}
+
+func remove(svc *s3.S3, bucket string, objects *s3.ListObjectsOutput) {
+	targets := []*s3.ObjectIdentifier{}
+	for _, c := range objects.Contents {
+		targets = append(targets, &s3.ObjectIdentifier{
+			Key: c.Key,
+		})
+	}
+
+	_, err := svc.DeleteObjects(&s3.DeleteObjectsInput{
+		Bucket: aws.String(bucket),
+		Delete: &s3.Delete{
+			Objects: targets,
+		},
+	})
+	if err != nil {
+		log.Fatal(err.Error())
+		log.Fatal("failed to delete objects")
+	}
 }
 
 func s3Session() *session.Session {
-	sess, err := session.NewSession()
+	// failed to list objectsMissingRegion: could not find region configuration
+	//sess, err := session.NewSession()
+	sess, err := session.NewSession(&aws.Config{Region: aws.String("ap-northeast-1")})
 	if err != nil {
 		log.Fatal("Error creating session ", err)
 	}
