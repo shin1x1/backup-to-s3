@@ -113,9 +113,7 @@ func remove(svc *s3.S3, bucket string, objects *s3.ListObjectsOutput) {
 }
 
 func s3Session() *session.Session {
-	// failed to list objectsMissingRegion: could not find region configuration
-	//sess, err := session.NewSession()
-	sess, err := session.NewSession(&aws.Config{Region: aws.String("ap-northeast-1")})
+	sess, err := session.NewSession()
 	if err != nil {
 		log.Fatal("Error creating session ", err)
 	}
